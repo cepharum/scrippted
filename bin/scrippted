@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+
+/**
+ * (c) 2014 cepharum GmbH, Berlin, http://cepharum.de
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @author: Thomas Urban
+ */
+
+var PATH    = require( "path" );
+var FS      = require( "fs" );
+var EXPRESS = require( "express" );
+var CONFIG  = require( "../config" );
+var LOGGER  = require( "morgan" );
+var HTTP    = require( "http" );
+var HTTPS   = require( "https" );
+var FINDER  = require( "findit" );
+var IPP     = require( "ipp" );
+
+
+
+// ----------------------------------------------------------------------------
+// prepare context information
+
+var basePath   = PATH.resolve( require.main.filename, "../.." );
+var modulePath = PATH.join( basePath, "module" );
+
+var logFormat = CONFIG.logFormat || ":date[iso] [%APP] :method :url :req[host] :req[content-length] :remote-addr :status :res[content-length] :response-time %OPERATION";
+
+// try loading optionally configured SSL cert/key files
+var ssl = null;
+
+if ( CONFIG.ssl ) {
+    try {
+        ssl = {
+            cert: FS.readFileSync( CONFIG.ssl.certFile ),
+            key: FS.readFileSync( CONFIG.ssl.keyFile )
+        };
+    } catch ( error ) {
+        console.error( "WARNING: failed to read SSL cert/key files - encrypted web UI disabled" );
+    }
+}
+
+
+// ----------------------------------------------------------------------------
+
+function qualifyLogFormat( logFormat, appName ) {
+    "use strict";
+
+    return logFormat.replace( /%(APP|OPERATION)/gi, function( marker, name ) {
+        switch ( name.toUpperCase() ) {
+            case "APP" : return appName;
+            case "OPERATION" : return appName === "ipp" ? ":ipp-operation" : "";
+        }
+    } );
+}
+
+LOGGER.token( "ipp-operation", function( req ) {
+    if ( req.ipp && req.ipp.header ) {
+        return req.ipp.header.getOperationName();
+    }
+
+    return "-";
+} );
+
+
+// ----------------------------------------------------------------------------
+// create one express application for serving web UI on port 80
+
+var web = EXPRESS();
+
+// prepare to use Jade rendering engine
+web.set( "views", PATH.join( basePath, "views" ) );
+web.set( "view engine", "jade" );
+
+// provide access on static asset files
+web.use( LOGGER( qualifyLogFormat( logFormat, "webui" ) ) );
+web.use( "/assets", EXPRESS.static( PATH.join( basePath, "static/assets" ) ) );
+
+// provide web ui on default http port
+HTTP.createServer( web ).listen( process.env.HTTP_PORT || 80 );
+
+if ( ssl ) {
+    HTTPS.createServer( ssl, web ).listen( process.env.HTTPS_PORT || 443 );
+}
+
+web.set( "ssl-enabled", !!ssl );
+
+
+
+// ----------------------------------------------------------------------------
+// create another express application for serving IPP on port 631
+
+var ipp = EXPRESS();
+
+// ensure requests' IPP messages are parsed first
+ipp.use( IPP.middleware() );
+
+ipp.use( LOGGER( qualifyLogFormat( logFormat, "ipp" ) ) );
+
+ipp.listen( process.env.IPP_PORT || 631 );
+
+ipp.set( "ssl-enabled", !!ssl );
+
+
+
+// ----------------------------------------------------------------------------
+// find and load all available modules for either application
+
+var repos = {
+    "webui" : web,
+    "ipp" : ipp
+};
+
+Object.keys( repos ).forEach( function( subfolder ) {
+    "use strict";
+
+    var app = repos[subfolder],
+        finder = FINDER( PATH.join( modulePath, subfolder ) ),
+        found = [];
+
+    // register all found Javascript files as modules to given sub-application
+    finder.on( "file", function( filename ) {
+        if ( PATH.extname( filename ) === ".js" ) {
+            var match = PATH.basename( filename ).match( /^(\d+)-/ ) || [];
+
+            found.push( [ match[1] || 50, require( filename ), filename ] );
+        }
+    } );
+
+    // append further middleware to be applied last
+    finder.on( "end", function() {
+        // sort all found modules by priority
+        found.sort( function( l, r ) {
+            return l[0] - r[0];
+        } );
+
+        // register sorted list of found modules
+        found.forEach( function( module ) {
+            module[1].registerModule( app );
+        } );
+    } );
+} );

@@ -1,0 +1,9 @@
+//
+	Created by cepharum on 08.10.2014.
+
+extends lib/page
+
+block content
+	h1= message
+	if error && error.stack
+		pre= error.stack

@@ -1,0 +1,26 @@
+{
+	"name": "scrippted",
+	"version": "0.0.1",
+	"author": "cepharum GmbH",
+	"homepage": "http://cepharum.de",
+	"license": "MIT",
+	"dependencies": {
+		"express": "4.x",
+		"morgan" : "",
+		"body-parser": "",
+		"jade": ">=1.6.0",
+		"marked": "",
+		"findit": "",
+		"cepharum/ipp": ""
+	},
+	"description": "an IPP service implementation in Javascript",
+	"main": "node_modules/main.js",
+	"directories": {
+		"doc": "doc",
+		"bin": "bin"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/cepharum/scrippted"
+	}
+}

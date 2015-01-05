@@ -1,0 +1,21 @@
+//
+	Created by cepharum on 08.10.2014.
+
+doctype html
+
+html
+	head
+		title scrippted
+		link(rel="stylesheet" href="/assets/style.css" type="text/css")
+	body
+		div#wrapper
+			div#header
+				block header
+			div#container
+				block content
+					h1 Missing View
+					p This page has been defined, already. It's view is missing though.
+			div#footer
+				block footer
+					!= "&copy;\u00a0" + new Date().getFullYear() + "\u00a0"
+					a(href="http://cepharum.de") cepharum GmbH
